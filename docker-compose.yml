@@ -1,0 +1,68 @@
+version: "3.9"
+volumes:
+  loki-data: null
+services:
+  loki:
+    image: "grafana/loki:3.5.2"
+    restart: unless-stopped
+    environment:
+      - SERVICE_FQDN_LOKI_3100
+      - "S3_BUCKET_ENDPOINT=${S3_BUCKET_ENDPOINT}"
+      - "S3_BUCKET_NAME=${S3_BUCKET_NAME}"
+      - "S3_BUCKET_ACCESS_KEY=${S3_BUCKET_ACCESS_KEY}"
+      - "S3_BUCKET_ACCESS_SECRET=${S3_BUCKET_ACCESS_SECRET}"
+      - "BASIC_AUTH_HASH=${BASIC_AUTH_HASH}"
+      - "RETENTION_PERIOD=${RETENTION_PERIOD}"
+    labels:
+      - "traefik.http.middlewares.mybasicauth.basicauth.users=${BASIC_AUTH_HASH}"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - "-qO-"
+        - "http://localhost:3100/ready"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - "loki-data:/loki"
+      - type: bind
+        source: ./loki.yml
+        target: /etc/loki/loki.yml
+        content: |
+          auth_enabled: false
+
+          server:
+            http_listen_port: 3100
+            grpc_listen_port: 9096
+            log_level: info
+
+          common:
+            path_prefix: /loki
+            ring:
+              kvstore: { store: inmemory }
+
+          schema_config:
+            configs:
+              - from: 2020-10-24
+                store: tsdb
+                object_store: aws
+                schema: v13
+                index: { prefix: index_, period: 24h }
+
+          storage_config:
+            tsdb_shipper:
+              active_index_directory: /loki/index
+              cache_location: /loki/index_cache
+            aws:
+              s3: ${S3_BUCKET_ENDPOINT}
+              bucketnames: ${S3_BUCKET_NAME}
+              access_key_id: ${S3_BUCKET_ACCESS_KEY}
+              secret_access_key: ${S3_BUCKET_ACCESS_SECRET}
+              region: us-east-1
+              s3forcepathstyle: true
+              insecure: false    # set true if your MinIO is plain HTTP
+
+          limits_config:
+            retention_period: ${RETENTION_PERIOD}
