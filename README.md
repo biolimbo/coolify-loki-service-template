@@ -1,0 +1,1 @@
+# coolify-loki-service-template
